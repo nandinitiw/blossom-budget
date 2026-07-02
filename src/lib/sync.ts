@@ -187,8 +187,10 @@ export async function syncUser(userId: string) {
   for (const item of items) {
     results.push(await syncPlaidItem(item));
   }
-  // Re-check budget/goal thresholds against the fresh data
+  // Re-check budget/goal thresholds and refresh today's net worth snapshot
   const { evaluateAlerts } = await import("@/lib/alerts");
   await evaluateAlerts(userId).catch((e) => console.error("[alerts]", e));
+  const { snapshotNetWorth } = await import("@/lib/networth");
+  await snapshotNetWorth(userId).catch((e) => console.error("[snapshot]", e));
   return results;
 }

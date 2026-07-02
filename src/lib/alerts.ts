@@ -53,6 +53,33 @@ export async function evaluateAlerts(userId: string): Promise<void> {
     }
   }
 
+  // Recurring price increases (e.g. a subscription hike)
+  const { detectRecurring } = await import("@/lib/recurring");
+  const { subMonths } = await import("date-fns");
+  const txs = await prisma.transaction.findMany({
+    where: { userId, date: { gte: subMonths(now, 13) }, amount: { gt: 0 } },
+    orderBy: { date: "asc" },
+  });
+  const recurring = detectRecurring(
+    txs.map((t) => ({
+      id: t.id,
+      date: t.date,
+      amount: Number(t.amount),
+      name: t.name,
+      merchantName: t.merchantName,
+      logoUrl: t.logoUrl,
+    })),
+    now
+  );
+  for (const r of recurring.filter((x) => x.priceChanged)) {
+    await upsertAlert(
+      userId,
+      "RECURRING_PRICE_CHANGE",
+      `recurring:${r.merchantKey}:${r.lastAmount.toFixed(2)}`,
+      `${r.displayName} charged ${money(r.lastAmount)} — it was ${money(r.previousAmount)} last time.`
+    );
+  }
+
   for (const g of goals) {
     const period = monthKey(now);
     if (g.progress.status === "achieved") {
