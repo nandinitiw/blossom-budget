@@ -17,10 +17,13 @@ export async function POST(req: Request) {
   if (!item) return NextResponse.json({ ok: true });
 
   switch (body.webhook_type) {
-    case "TRANSACTIONS":
+    case "TRANSACTIONS": {
       // SYNC_UPDATES_AVAILABLE (and legacy DEFAULT_UPDATE etc.)
       await syncPlaidItem(item);
+      const { evaluateAlerts } = await import("@/lib/alerts");
+      await evaluateAlerts(item.userId).catch((e) => console.error("[alerts]", e));
       break;
+    }
     case "ITEM":
       if (body.webhook_code === "PENDING_EXPIRATION" || body.webhook_code === "ERROR") {
         await prisma.plaidItem.update({

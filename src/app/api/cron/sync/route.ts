@@ -27,6 +27,13 @@ export async function GET(req: Request) {
     else errors++;
   }
 
+  // Re-evaluate budget/goal alerts for every affected user
+  const { evaluateAlerts } = await import("@/lib/alerts");
+  const userIds = [...new Set(items.map((i) => i.userId))];
+  for (const uid of userIds) {
+    await evaluateAlerts(uid).catch((e) => console.error("[alerts]", e));
+  }
+
   await getItemUsage(); // logs a warning if nearing the Plaid Trial cap
 
   return NextResponse.json({ ok: true, synced: ok, reauth, errors });

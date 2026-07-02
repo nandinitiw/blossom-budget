@@ -187,5 +187,8 @@ export async function syncUser(userId: string) {
   for (const item of items) {
     results.push(await syncPlaidItem(item));
   }
+  // Re-check budget/goal thresholds against the fresh data
+  const { evaluateAlerts } = await import("@/lib/alerts");
+  await evaluateAlerts(userId).catch((e) => console.error("[alerts]", e));
   return results;
 }

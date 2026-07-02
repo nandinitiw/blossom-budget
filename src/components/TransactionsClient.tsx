@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { money, signedMoney, fullDate } from "@/lib/format";
+import { signedMoney, fullDate } from "@/lib/format";
 
 type Category = { id: string; name: string; color: string };
 type Account = { id: string; name: string; mask: string | null };
