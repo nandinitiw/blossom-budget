@@ -23,6 +23,7 @@
     "prisma": "^6.19.3",
     "react": "19.1.0",
     "react-dom": "19.1.0",
+    "react-plaid-link": "^4.1.1",
     "recharts": "^3.9.1",
     "resend": "^6.16.0",
     "zod": "^4.4.3"
