@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { seedDefaultCategories } from "@/lib/categories";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
+import { signupAllowed } from "@/lib/allowlist";
 
 const schema = z.object({
   name: z.string().trim().min(1).max(100),
@@ -30,6 +31,13 @@ export async function POST(req: Request) {
   }
 
   const email = parsed.data.email.toLowerCase();
+
+  if (!signupAllowed(email)) {
+    return NextResponse.json(
+      { error: "Sign-ups are currently limited. This email isn't on the allowlist." },
+      { status: 403 }
+    );
+  }
 
   try {
     const existing = await prisma.user.findUnique({ where: { email } });

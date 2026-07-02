@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { seedDefaultCategories } from "@/lib/categories";
+import { signupAllowed } from "@/lib/allowlist";
 
 const providers: NextAuthOptions["providers"] = [
   CredentialsProvider({
@@ -43,6 +44,13 @@ export const authOptions: NextAuthOptions = {
     // For Google sign-in, upsert a User row so the rest of the app has one
     async signIn({ user, account }) {
       if (account?.provider === "google" && user.email) {
+        const email = user.email.toLowerCase();
+        // Enforce the same signup allowlist as credentials — but let existing
+        // users back in even if they're no longer on the list.
+        if (!signupAllowed(email)) {
+          const existing = await prisma.user.findUnique({ where: { email } });
+          if (!existing) return false;
+        }
         const dbUser = await prisma.user.upsert({
           where: { email: user.email.toLowerCase() },
           update: { name: user.name ?? undefined, image: user.image ?? undefined },
