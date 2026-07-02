@@ -230,8 +230,8 @@ export function NetWorthClient({
 
           {manualEntries.length === 0 && !adding ? (
             <p className="text-sm text-muted">
-              Track things Plaid can't see — investment accounts, property, or
-              loans — so your net worth is complete.
+              Track things Plaid can&apos;t see — investment accounts, property,
+              or loans — so your net worth is complete.
             </p>
           ) : (
             <ul className="space-y-2">
