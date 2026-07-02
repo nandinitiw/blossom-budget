@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+@theme {
+  /* Blossom Budget palette */
+  --color-blossom: #d4537e; /* primary pink accent */
+  --color-blossom-dark: #b23a63; /* text-safe pink for colored backgrounds */
+  --color-blossom-light: #f4c0d1; /* light pink tint */
+  --color-lavender: #7f77dd; /* secondary lavender accent */
+  --color-lavender-dark: #5f57bd; /* text-safe lavender */
+  --color-lavender-light: #eeedfe; /* light lavender tint */
+  --color-ink: #1f1b24; /* near-black text */
+  --color-muted: #6e6879; /* secondary text */
+  --color-paper: #faf9fb; /* off-white page background */
+  --color-positive: #3d8a5f; /* income / on-track green */
+  --color-negative: #c23b3b; /* overage red */
+  --font-sans: var(--font-geist-sans);
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+
+/* Thin, palette-tinted scrollbars where supported */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-blossom-light) transparent;
+}

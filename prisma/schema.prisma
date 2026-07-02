@@ -1,0 +1,312 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum BudgetPeriod {
+  WEEKLY
+  MONTHLY
+}
+
+enum GoalType {
+  SAVE
+  SPEND_LIMIT
+  DEBT_PAYOFF
+}
+
+enum PlaidItemStatus {
+  OK
+  LOGIN_REQUIRED
+  ERROR
+}
+
+enum ManualEntryType {
+  ASSET
+  LIABILITY
+}
+
+enum EmailType {
+  WEEKLY_SUMMARY
+  MONTHLY_SUMMARY
+}
+
+enum AlertType {
+  BUDGET_WARNING
+  BUDGET_EXCEEDED
+  GOAL_AT_RISK
+  GOAL_ACHIEVED
+  RECURRING_PRICE_CHANGE
+  PLAID_REAUTH
+}
+
+model User {
+  id                  String    @id @default(cuid())
+  email               String    @unique
+  name                String?
+  passwordHash        String?
+  image               String?
+  emailVerified       DateTime?
+
+  // Personalization (set during onboarding)
+  onboardingCompleted Boolean      @default(false)
+  incomeFrequency     String? // weekly | biweekly | semimonthly | monthly | irregular
+  financialPriority   String? // saving | debt_payoff | awareness
+  budgetPeriod        BudgetPeriod @default(MONTHLY)
+
+  // Email report preferences
+  emailWeekly         Boolean @default(false)
+  emailMonthly        Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  plaidItems        PlaidItem[]
+  accounts          Account[]
+  transactions      Transaction[]
+  categories        Category[]
+  budgets           Budget[]
+  goals             Goal[]
+  tags              Tag[]
+  merchantRules     MerchantRule[]
+  manualEntries     ManualEntry[]
+  netWorthSnapshots NetWorthSnapshot[]
+  emailLogs         EmailLog[]
+  alerts            Alert[]
+  resetTokens       PasswordResetToken[]
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model PlaidItem {
+  id                 String          @id @default(cuid())
+  userId             String
+  itemId             String          @unique
+  // Plaid access_token encrypted with AES-256-GCM (see src/lib/crypto.ts)
+  accessTokenEnc     String
+  institutionId      String?
+  institutionName    String?
+  status             PlaidItemStatus @default(OK)
+  transactionsCursor String?
+  lastSyncedAt       DateTime?
+  createdAt          DateTime        @default(now())
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accounts Account[]
+
+  @@index([userId])
+}
+
+model Account {
+  id               String   @id @default(cuid())
+  userId           String
+  plaidItemId      String?
+  plaidAccountId   String?  @unique
+  name             String
+  officialName     String?
+  mask             String?
+  type             String // depository | credit | loan | investment
+  subtype          String? // checking | savings | credit card | ...
+  currentBalance   Decimal  @default(0) @db.Decimal(14, 2)
+  availableBalance Decimal? @db.Decimal(14, 2)
+  currency         String   @default("USD")
+  hidden           Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plaidItem    PlaidItem?    @relation(fields: [plaidItemId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([userId])
+}
+
+model Category {
+  id        String  @id @default(cuid())
+  userId    String
+  name      String
+  icon      String  @default("tag")
+  color     String  @default("#7F77DD")
+  isDefault Boolean @default(false)
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions  Transaction[]
+  budgets       Budget[]
+  goals         Goal[]
+  merchantRules MerchantRule[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model Transaction {
+  id                 String   @id @default(cuid())
+  userId             String
+  accountId          String
+  plaidTransactionId String?  @unique
+  date               DateTime @db.Date
+  // Plaid convention: positive = money out, negative = money in
+  amount             Decimal  @db.Decimal(14, 2)
+  name               String // raw name from Plaid or manual entry
+  merchantName       String? // cleaned display name
+  logoUrl            String?
+  plaidCategory      String? // Plaid personal_finance_category.primary
+  categoryId         String?
+  note               String?
+  pending            Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account  Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  category Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  tags     TransactionTag[]
+
+  @@index([userId, date])
+  @@index([accountId])
+  @@index([categoryId])
+}
+
+model Tag {
+  id    String @id @default(cuid())
+  userId String
+  name  String
+  color String @default("#D4537E")
+
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions TransactionTag[]
+
+  @@unique([userId, name])
+}
+
+model TransactionTag {
+  transactionId String
+  tagId         String
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  tag         Tag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([transactionId, tagId])
+}
+
+// Remembers a user's manual recategorization so future transactions from the
+// same normalized merchant get the same category automatically.
+model MerchantRule {
+  id         String @id @default(cuid())
+  userId     String
+  merchantKey String // normalized merchant name
+  categoryId String
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, merchantKey])
+}
+
+model Budget {
+  id         String       @id @default(cuid())
+  userId     String
+  categoryId String
+  amount     Decimal      @db.Decimal(14, 2)
+  period     BudgetPeriod @default(MONTHLY)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, categoryId])
+  @@index([userId])
+}
+
+model Goal {
+  id           String    @id @default(cuid())
+  userId       String
+  name         String
+  type         GoalType
+  targetAmount Decimal   @db.Decimal(14, 2)
+  // For SAVE / DEBT_PAYOFF: balance at goal creation, so progress = delta since start
+  startAmount  Decimal?  @db.Decimal(14, 2)
+  categoryId   String? // for SPEND_LIMIT goals
+  accountId    String? // account tracked for SAVE / DEBT_PAYOFF goals
+  deadline     DateTime?
+  archived     Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+}
+
+// Manually-entered assets/liabilities included in net worth alongside Plaid accounts
+model ManualEntry {
+  id        String          @id @default(cuid())
+  userId    String
+  name      String
+  type      ManualEntryType
+  balance   Decimal         @db.Decimal(14, 2)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model NetWorthSnapshot {
+  id          String   @id @default(cuid())
+  userId      String
+  date        DateTime @db.Date
+  assets      Decimal  @db.Decimal(14, 2)
+  liabilities Decimal  @db.Decimal(14, 2)
+  netWorth    Decimal  @db.Decimal(14, 2)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+}
+
+model EmailLog {
+  id        String    @id @default(cuid())
+  userId    String
+  type      EmailType
+  // e.g. "2026-W26" for weekly, "2026-06" for monthly — uniqueness prevents duplicate sends
+  periodKey String
+  sentAt    DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type, periodKey])
+}
+
+model Alert {
+  id        String    @id @default(cuid())
+  userId    String
+  type      AlertType
+  message   String
+  // stable key so the same alert isn't re-created every sync (e.g. "budget:catId:2026-06:80")
+  dedupeKey String
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, readAt])
+}
