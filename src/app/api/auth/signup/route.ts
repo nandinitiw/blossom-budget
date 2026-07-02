@@ -30,19 +30,30 @@ export async function POST(req: Request) {
   }
 
   const email = parsed.data.email.toLowerCase();
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) {
+
+  try {
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      return NextResponse.json(
+        { error: "An account with this email already exists." },
+        { status: 409 }
+      );
+    }
+
+    const passwordHash = await bcrypt.hash(parsed.data.password, 12);
+    const user = await prisma.user.create({
+      data: { email, name: parsed.data.name, passwordHash },
+    });
+    await seedDefaultCategories(user.id);
+
+    return NextResponse.json({ ok: true }, { status: 201 });
+  } catch (err) {
+    // Most likely a missing/unreachable database or un-migrated schema.
+    // Log the real cause server-side; return a clean message to the client.
+    console.error("[signup] failed:", err);
     return NextResponse.json(
-      { error: "An account with this email already exists." },
-      { status: 409 }
+      { error: "We couldn't create your account. Please try again shortly." },
+      { status: 500 }
     );
   }
-
-  const passwordHash = await bcrypt.hash(parsed.data.password, 12);
-  const user = await prisma.user.create({
-    data: { email, name: parsed.data.name, passwordHash },
-  });
-  await seedDefaultCategories(user.id);
-
-  return NextResponse.json({ ok: true }, { status: 201 });
 }
