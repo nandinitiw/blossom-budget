@@ -130,7 +130,11 @@ Key design points:
 
 ### Moving Plaid from sandbox to production
 
-Plaid's free **Trial** plan allows up to 10 live Items. To go live: request Production access in the Plaid Dashboard (a short use-case questionnaire, ~1–2 days), complete their security attestation, then switch `PLAID_ENV=production` and use your production secret. The app warns in Settings and logs when you approach the 10-Item cap.
+Request Production access in the Plaid Dashboard (a short use-case questionnaire, ~1–2 days), pick the **Pay As You Go** plan (no commitment, usage-based billing — only select the **Transactions** product; the app doesn't need Balance, Auth, etc.), then switch `PLAID_ENV=production` and use your production secret.
+
+To support OAuth banks (Chase, Bank of America, Wells Fargo, and most other major US institutions), add your production URL under **Team Settings → API → Allowed redirect URIs** in the Plaid Dashboard (e.g. `https://your-app.vercel.app/accounts`), then set `PLAID_REDIRECT_URI` to that exact value. Until then, only non-OAuth institutions will connect.
+
+The app also has a soft 10-Item warning/cap (Settings and logs) as a sanity check against runaway connections — Plaid's own limits depend on your plan, so double-check the actual cap in your dashboard.
 
 ---
 

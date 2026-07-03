@@ -4,6 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { usePlaidLink } from "react-plaid-link";
 
+// sessionStorage key so the link token survives a full-page OAuth redirect
+// (the bank's login page, then back to /accounts) — Link must be reopened
+// with the exact same token, not a freshly created one.
+const LINK_TOKEN_STORAGE_KEY = "blossom_plaid_link_token";
+
 // Two modes: connect a new bank (no itemId) or re-authenticate an existing
 // item in Plaid update mode (itemId set).
 export function PlaidLinkButton({
@@ -20,8 +25,12 @@ export function PlaidLinkButton({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const isOAuthReturn =
+    typeof window !== "undefined" && window.location.search.includes("oauth_state_id=");
+
   const onSuccess = useCallback(
     async (publicToken: string, metadata: { institution?: { institution_id?: string; name?: string } | null }) => {
+      sessionStorage.removeItem(LINK_TOKEN_STORAGE_KEY);
       if (itemId) {
         // Update mode: token unchanged, just clear the reauth flag by resyncing
         await fetch("/api/plaid/sync", { method: "POST" });
@@ -43,14 +52,26 @@ export function PlaidLinkButton({
           return;
         }
       }
+      if (isOAuthReturn) router.replace(window.location.pathname);
       router.refresh();
     },
-    [itemId, router]
+    [itemId, router, isOAuthReturn]
   );
+
+  // Returning from a bank's OAuth login: reload the token we stashed before
+  // redirecting away, so Link can resume where it left off.
+  useEffect(() => {
+    if (isOAuthReturn) {
+      const stored = sessionStorage.getItem(LINK_TOKEN_STORAGE_KEY);
+      if (stored) setLinkToken(stored);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const { open, ready } = usePlaidLink({
     token: linkToken,
     onSuccess,
+    ...(isOAuthReturn ? { receivedRedirectUri: window.location.href } : {}),
   });
 
   async function start() {
@@ -68,10 +89,12 @@ export function PlaidLinkButton({
       return;
     }
     const data = await res.json();
+    sessionStorage.setItem(LINK_TOKEN_STORAGE_KEY, data.linkToken);
     setLinkToken(data.linkToken);
   }
 
-  // Once the token arrives and Link is ready, open it
+  // Once the token arrives and Link is ready, open it (this also fires
+  // automatically on OAuth return, resuming without another click)
   useEffect(() => {
     if (linkToken && ready) {
       open();

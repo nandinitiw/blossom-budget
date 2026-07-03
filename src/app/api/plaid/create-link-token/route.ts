@@ -35,6 +35,7 @@ export async function POST(req: Request) {
         language: "en",
         country_codes: [CountryCode.Us],
         access_token: decrypt(item.accessTokenEnc),
+        redirect_uri: process.env.PLAID_REDIRECT_URI || undefined,
       });
       return NextResponse.json({ linkToken: res.data.link_token, updateMode: true });
     }
@@ -60,6 +61,12 @@ export async function POST(req: Request) {
       webhook: process.env.APP_URL
         ? `${process.env.APP_URL}/api/plaid/webhook`
         : undefined,
+      // Needed for OAuth institutions (most major US banks). Plaid rejects
+      // linkTokenCreate outright if redirect_uri isn't pre-registered as an
+      // "Allowed redirect URI" in the Dashboard, so this stays unset — and
+      // OAuth banks stay unsupported — until PLAID_REDIRECT_URI is configured
+      // to match a registered URI exactly. See .env.example.
+      redirect_uri: process.env.PLAID_REDIRECT_URI || undefined,
     });
     return NextResponse.json({
       linkToken: res.data.link_token,
