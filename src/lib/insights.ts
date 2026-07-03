@@ -24,16 +24,21 @@ export async function generateInsights(userId: string): Promise<string[]> {
 
   // 1. Biggest category mover vs the same point is hard without daily data;
   //    compare against last month prorated by elapsed fraction of this month.
+  //    Skip early in the period — with only a few days elapsed the proration is
+  //    too noisy and produces misleading swings (e.g. "4000% higher").
   const prevByName = new Map(prevCats.map((c) => [c.name, c.amount]));
   let bestMove: { name: string; deltaPct: number; up: boolean } | null = null;
-  for (const c of curCats) {
-    const prev = (prevByName.get(c.name) ?? 0) * elapsed;
-    if (prev < 25 && c.amount < 25) continue; // ignore noise
-    if (prev === 0) continue;
-    const deltaPct = Math.round(((c.amount - prev) / prev) * 100);
-    if (Math.abs(deltaPct) >= 20 && Math.abs(c.amount - prev) >= 25) {
-      if (!bestMove || Math.abs(deltaPct) > Math.abs(bestMove.deltaPct)) {
-        bestMove = { name: c.name, deltaPct: Math.abs(deltaPct), up: deltaPct > 0 };
+  if (elapsed >= 0.25) {
+    for (const c of curCats) {
+      const prev = (prevByName.get(c.name) ?? 0) * elapsed;
+      if (prev < 25 && c.amount < 25) continue; // ignore noise
+      if (prev === 0) continue;
+      const deltaPct = Math.round(((c.amount - prev) / prev) * 100);
+      // Cap runaway percentages so a small base can't dominate
+      if (Math.abs(deltaPct) >= 20 && Math.abs(deltaPct) <= 300 && Math.abs(c.amount - prev) >= 25) {
+        if (!bestMove || Math.abs(deltaPct) > Math.abs(bestMove.deltaPct)) {
+          bestMove = { name: c.name, deltaPct: Math.abs(deltaPct), up: deltaPct > 0 };
+        }
       }
     }
   }
