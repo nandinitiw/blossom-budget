@@ -8,15 +8,28 @@ import { resolveCategoryName } from "@/lib/categories";
 
 /**
  * Sync one Plaid Item: pull new/modified/removed transactions via the
- * /transactions/sync cursor API, refresh balances, and (re)categorize.
- * Returns counts, or marks the item LOGIN_REQUIRED when re-auth is needed.
+ * /transactions/sync cursor API, optionally refresh balances, and
+ * (re)categorize. Returns counts, or marks the item LOGIN_REQUIRED when
+ * re-auth is needed.
+ *
+ * `refreshBalance` calls Plaid's /accounts/get, which is billed separately
+ * (the "Balance" product) from Transactions. Webhook-triggered syncs skip it
+ * to avoid paying for a balance check on every transaction update — the
+ * daily cron and manual "Sync now" still refresh balances, so staleness is
+ * bounded to about a day. Skipping it also means a brand-new account added
+ * at an already-linked institution won't appear (and its transactions are
+ * dropped) until the next refreshBalance sync — a rare, self-healing edge case.
  */
-export async function syncPlaidItem(item: PlaidItem): Promise<{
+export async function syncPlaidItem(
+  item: PlaidItem,
+  opts: { refreshBalance?: boolean } = {}
+): Promise<{
   added: number;
   modified: number;
   removed: number;
   status: "ok" | "reauth_required" | "error";
 }> {
+  const refreshBalance = opts.refreshBalance ?? true;
   const accessToken = decrypt(item.accessTokenEnc);
   let cursor = item.transactionsCursor ?? undefined;
   let added = 0,
@@ -24,30 +37,31 @@ export async function syncPlaidItem(item: PlaidItem): Promise<{
     removed = 0;
 
   try {
-    // Refresh account list + balances first
-    const accountsRes = await plaidClient.accountsGet({ access_token: accessToken });
-    for (const acct of accountsRes.data.accounts) {
-      await prisma.account.upsert({
-        where: { plaidAccountId: acct.account_id },
-        update: {
-          currentBalance: acct.balances.current ?? 0,
-          availableBalance: acct.balances.available,
-          name: acct.name,
-        },
-        create: {
-          userId: item.userId,
-          plaidItemId: item.id,
-          plaidAccountId: acct.account_id,
-          name: acct.name,
-          officialName: acct.official_name,
-          mask: acct.mask,
-          type: acct.type,
-          subtype: acct.subtype ?? null,
-          currentBalance: acct.balances.current ?? 0,
-          availableBalance: acct.balances.available,
-          currency: acct.balances.iso_currency_code ?? "USD",
-        },
-      });
+    if (refreshBalance) {
+      const accountsRes = await plaidClient.accountsGet({ access_token: accessToken });
+      for (const acct of accountsRes.data.accounts) {
+        await prisma.account.upsert({
+          where: { plaidAccountId: acct.account_id },
+          update: {
+            currentBalance: acct.balances.current ?? 0,
+            availableBalance: acct.balances.available,
+            name: acct.name,
+          },
+          create: {
+            userId: item.userId,
+            plaidItemId: item.id,
+            plaidAccountId: acct.account_id,
+            name: acct.name,
+            officialName: acct.official_name,
+            mask: acct.mask,
+            type: acct.type,
+            subtype: acct.subtype ?? null,
+            currentBalance: acct.balances.current ?? 0,
+            availableBalance: acct.balances.available,
+            currency: acct.balances.iso_currency_code ?? "USD",
+          },
+        });
+      }
     }
 
     // Preload the user's categories and merchant rules once

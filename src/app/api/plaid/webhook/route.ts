@@ -18,8 +18,10 @@ export async function POST(req: Request) {
 
   switch (body.webhook_type) {
     case "TRANSACTIONS": {
-      // SYNC_UPDATES_AVAILABLE (and legacy DEFAULT_UPDATE etc.)
-      await syncPlaidItem(item);
+      // SYNC_UPDATES_AVAILABLE (and legacy DEFAULT_UPDATE etc.). Skip the
+      // balance refresh here — it's billed separately per call, and the
+      // daily cron (or a manual "Sync now") keeps balances fresh within a day.
+      await syncPlaidItem(item, { refreshBalance: false });
       const { evaluateAlerts } = await import("@/lib/alerts");
       await evaluateAlerts(item.userId).catch((e) => console.error("[alerts]", e));
       break;
