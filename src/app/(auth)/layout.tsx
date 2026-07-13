@@ -11,6 +11,11 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         <div className="bg-white rounded-2xl shadow-sm border border-lavender-light p-8">
           {children}
         </div>
+        <p className="text-center text-xs text-muted mt-6">
+          <a href="/privacy" className="hover:underline">
+            Privacy Policy
+          </a>
+        </p>
       </div>
     </main>
   );
