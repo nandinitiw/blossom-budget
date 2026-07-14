@@ -68,9 +68,28 @@ export function PlaidLinkButton({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Surface the specific Plaid error when Link exits abnormally (otherwise the
+  // user just sees Plaid's generic "internal error" with no actionable detail).
+  const onExit = useCallback(
+    (err: { error_code?: string; error_message?: string; display_message?: string } | null) => {
+      sessionStorage.removeItem(LINK_TOKEN_STORAGE_KEY);
+      if (err) {
+        console.error("[plaid-link] exit error", err);
+        const detail = err.display_message || err.error_message || err.error_code;
+        setError(
+          detail
+            ? `Bank connection error${err.error_code ? ` (${err.error_code})` : ""}: ${detail}`
+            : "The bank connection didn't complete. Please try again."
+        );
+      }
+    },
+    []
+  );
+
   const { open, ready } = usePlaidLink({
     token: linkToken,
     onSuccess,
+    onExit,
     ...(isOAuthReturn ? { receivedRedirectUri: window.location.href } : {}),
   });
 
