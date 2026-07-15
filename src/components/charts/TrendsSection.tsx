@@ -12,7 +12,75 @@ import {
 } from "recharts";
 import { money } from "@/lib/format";
 
-type SeriesPoint = { label: string; total: number } & Record<string, number | string>;
+type SeriesPoint = {
+  label: string;
+  total: number;
+  spend: number;
+  earned: number;
+  net: number;
+} & Record<string, number | string>;
+
+// Tooltip: period totals (spend / earned / net) up top, then the category
+// breakdown that makes up the stacked bar.
+function TrendTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: { name?: string; value?: number; color?: string; payload?: SeriesPoint }[];
+  label?: string;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const point = payload[0]?.payload;
+  if (!point) return null;
+
+  const spend = Number(point.spend ?? 0);
+  const earned = Number(point.earned ?? 0);
+  const net = Number(point.net ?? earned - spend);
+  const cats = payload
+    .filter((p) => Number(p.value) > 0)
+    .sort((a, b) => Number(b.value) - Number(a.value));
+
+  return (
+    <div className="rounded-xl border border-lavender-light bg-white px-3 py-2.5 shadow-sm text-[13px] min-w-44">
+      <p className="font-semibold mb-1.5">{label}</p>
+      <div className="space-y-0.5">
+        <div className="flex justify-between gap-6">
+          <span className="text-muted">Total spend</span>
+          <span className="font-medium text-blossom-dark">{money(spend)}</span>
+        </div>
+        <div className="flex justify-between gap-6">
+          <span className="text-muted">Total earned</span>
+          <span className="font-medium text-positive">{money(earned)}</span>
+        </div>
+        <div className="flex justify-between gap-6 pt-0.5 border-t border-lavender-light mt-1">
+          <span className="text-muted">Net</span>
+          <span className={`font-semibold ${net >= 0 ? "text-positive" : "text-negative"}`}>
+            {net >= 0 ? "+" : "−"}
+            {money(Math.abs(net))}
+          </span>
+        </div>
+      </div>
+      {cats.length > 0 && (
+        <ul className="mt-2 pt-2 border-t border-lavender-light space-y-0.5">
+          {cats.map((c) => (
+            <li key={c.name} className="flex justify-between gap-6 text-xs">
+              <span className="flex items-center gap-1.5 text-muted">
+                <span
+                  className="inline-block w-2 h-2 rounded-full"
+                  style={{ backgroundColor: c.color }}
+                />
+                {c.name}
+              </span>
+              <span>{money(Number(c.value))}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 export function TrendsSection({
   categories,
@@ -104,9 +172,9 @@ export function TrendsSection({
         <div className="h-64 flex items-center justify-center text-sm text-muted">
           Loading…
         </div>
-      ) : series.every((p) => p.total === 0) ? (
+      ) : series.every((p) => p.spend === 0 && p.earned === 0) ? (
         <div className="h-64 flex items-center justify-center text-sm text-muted">
-          No spending in this range yet — connect a bank or adjust filters.
+          Nothing in this range yet — connect a bank or adjust filters.
         </div>
       ) : (
         <div className="h-64">
@@ -126,14 +194,7 @@ export function TrendsSection({
                 axisLine={false}
                 width={64}
               />
-              <Tooltip
-                formatter={(value, name) => [money(Number(value)), name]}
-                contentStyle={{
-                  borderRadius: 12,
-                  border: "1px solid #EEEDFE",
-                  fontSize: 13,
-                }}
-              />
+              <Tooltip content={<TrendTooltip />} cursor={{ fill: "#EEEDFE55" }} />
               {stacked.map((c) => (
                 <Bar
                   key={c.name}

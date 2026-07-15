@@ -4,8 +4,9 @@ import { getSessionUserId } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 // Spending trend series for charts.
-// Query params: granularity=monthly|weekly, months|weeks lookback,
-// categoryId, accountId, from, to — all combinable.
+// Query params: granularity=monthly|weekly, categoryId, accountId, from, to.
+// Each period reports per-category spend (for the stacked bars) plus the
+// period totals: spend (money out), earned (money in), and net.
 export async function GET(req: Request) {
   const userId = await getSessionUserId();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -25,14 +26,14 @@ export async function GET(req: Request) {
       : startOfMonth(subMonths(now, 5));
   const end = to ? new Date(to) : now;
 
+  // Pull everything in range (both money-in and money-out) so we can report
+  // earned and net alongside spend. Optional category/account filters still apply.
   const txs = await prisma.transaction.findMany({
     where: {
       userId,
-      amount: { gt: 0 },
       date: { gte: start, lte: end },
       ...(categoryId ? { categoryId } : {}),
       ...(accountId ? { accountId } : {}),
-      category: { isNot: { name: "Income" } },
     },
     select: { date: true, amount: true, categoryId: true },
   });
@@ -43,35 +44,46 @@ export async function GET(req: Request) {
   });
   const catById = new Map(categories.map((c) => [c.id, c]));
 
-  // bucket key: "2026-06" or ISO week start date
+  // bucket key: "Jun 2026" (monthly) or ISO week start "Jun 8" (weekly)
   const bucketOf = (d: Date) =>
     granularity === "weekly"
       ? format(startOfWeek(d, { weekStartsOn: 1 }), "MMM d")
       : format(d, "MMM yyyy");
 
-  const buckets = new Map<string, Record<string, number>>();
+  type Bucket = { spend: number; earned: number; cats: Record<string, number> };
+  const buckets = new Map<string, Bucket>();
   // Pre-create buckets so empty periods still render
   const cursor = new Date(start);
   while (cursor <= end) {
-    buckets.set(bucketOf(cursor), {});
+    buckets.set(bucketOf(cursor), { spend: 0, earned: 0, cats: {} });
     if (granularity === "weekly") cursor.setDate(cursor.getDate() + 7);
     else cursor.setMonth(cursor.getMonth() + 1);
   }
 
   for (const tx of txs) {
-    const key = bucketOf(tx.date);
-    const bucket = buckets.get(key) ?? {};
+    const bucket = buckets.get(bucketOf(tx.date));
+    if (!bucket) continue;
+    const amount = Number(tx.amount);
     const catName = tx.categoryId
       ? (catById.get(tx.categoryId)?.name ?? "Uncategorized")
       : "Uncategorized";
-    bucket[catName] = (bucket[catName] ?? 0) + Number(tx.amount);
-    buckets.set(key, bucket);
+
+    // Plaid convention: negative amount = money in.
+    if (amount < 0) {
+      bucket.earned += -amount;
+    } else if (catName !== "Income") {
+      bucket.spend += amount;
+      bucket.cats[catName] = (bucket.cats[catName] ?? 0) + amount;
+    }
   }
 
-  const series = Array.from(buckets.entries()).map(([label, cats]) => ({
+  const series = Array.from(buckets.entries()).map(([label, b]) => ({
     label,
-    total: Object.values(cats).reduce((s, v) => s + v, 0),
-    ...cats,
+    spend: Math.round(b.spend * 100) / 100,
+    earned: Math.round(b.earned * 100) / 100,
+    net: Math.round((b.earned - b.spend) * 100) / 100,
+    total: Math.round(b.spend * 100) / 100, // back-compat: total == spend
+    ...b.cats,
   }));
 
   const categoryMeta = categories
