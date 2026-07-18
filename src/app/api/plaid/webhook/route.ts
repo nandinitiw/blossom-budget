@@ -1,14 +1,33 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { syncPlaidItem } from "@/lib/sync";
+import { verifyPlaidWebhook } from "@/lib/plaid-webhook";
+import { plaidConfigured } from "@/lib/plaid";
 
-// Plaid webhook receiver. We only act on item_ids we already know, and we
-// never trust webhook payload data beyond "go re-sync this item" — the sync
-// itself re-fetches everything from Plaid's API with our stored token.
-// For production hardening you can additionally verify the Plaid-Verification
-// JWT header (https://plaid.com/docs/api/webhooks/webhook-verification/).
+// Plaid webhook receiver. Requests are authenticated by verifying the
+// Plaid-Verification JWT against the raw body (see lib/plaid-webhook.ts), so
+// only genuine Plaid webhooks are acted on. We still never trust the payload
+// beyond "re-sync this item" — the sync re-fetches everything from Plaid's API
+// with our stored token.
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => null);
+  // Read the raw body first — signature verification hashes the exact bytes.
+  const rawBody = await req.text();
+
+  // Only enforce verification when Plaid is configured (skips local/dev noise);
+  // in production, an unsigned or invalid webhook is rejected.
+  if (plaidConfigured()) {
+    const ok = await verifyPlaidWebhook(req.headers.get("plaid-verification"), rawBody);
+    if (!ok) {
+      return NextResponse.json({ error: "Invalid webhook signature" }, { status: 401 });
+    }
+  }
+
+  let body: { item_id?: string; webhook_type?: string; webhook_code?: string } | null;
+  try {
+    body = JSON.parse(rawBody);
+  } catch {
+    return NextResponse.json({ ok: true });
+  }
   if (!body?.item_id) return NextResponse.json({ ok: true });
 
   const item = await prisma.plaidItem.findUnique({
