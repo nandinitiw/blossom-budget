@@ -27,6 +27,17 @@ export function BudgetsClient({
   const [period, setPeriod] = useState<"WEEKLY" | "MONTHLY">(defaultPeriod);
   const [error, setError] = useState<string | null>(null);
 
+  // Inline edit state (one budget at a time)
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editAmount, setEditAmount] = useState("");
+  const [editPeriod, setEditPeriod] = useState<"WEEKLY" | "MONTHLY">("MONTHLY");
+
+  function startEdit(b: BudgetWithProgress) {
+    setEditingId(b.id);
+    setEditAmount(String(b.amount));
+    setEditPeriod(b.period);
+  }
+
   const unbudgeted = categories.filter(
     (c) => !budgets.some((b) => b.categoryId === c.id)
   );
@@ -50,14 +61,20 @@ export function BudgetsClient({
     router.refresh();
   }
 
-  async function update(b: BudgetWithProgress, newAmount: string) {
-    const value = parseFloat(newAmount);
-    if (!value || value <= 0 || value === b.amount) return;
-    await fetch("/api/budgets", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ categoryId: b.categoryId, amount: value, period: b.period }),
-    });
+  async function saveEdit(b: BudgetWithProgress) {
+    const value = parseFloat(editAmount);
+    if (!value || value <= 0) {
+      setEditingId(null);
+      return;
+    }
+    if (value !== b.amount || editPeriod !== b.period) {
+      await fetch("/api/budgets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ categoryId: b.categoryId, amount: value, period: editPeriod }),
+      });
+    }
+    setEditingId(null);
     router.refresh();
   }
 
@@ -205,23 +222,73 @@ export function BudgetsClient({
                   {b.pct}%
                 </span>
               </div>
-              <div className="flex items-center justify-between mt-3">
-                <input
-                  type="number"
-                  min="1"
-                  step="0.01"
-                  defaultValue={b.amount}
-                  onBlur={(e) => update(b, e.target.value)}
-                  className="rounded-lg border border-lavender-light px-2 py-1 text-xs w-24 focus:outline-none focus:ring-2 focus:ring-lavender/50"
-                  aria-label={`Edit ${b.categoryName} budget`}
-                />
-                <button
-                  onClick={() => remove(b.id)}
-                  className="text-xs text-muted hover:text-negative transition-colors"
+              {editingId === b.id ? (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    saveEdit(b);
+                  }}
+                  className="flex flex-wrap items-end gap-2 mt-3"
                 >
-                  Remove
-                </button>
-              </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-muted mb-0.5">
+                      Limit ($)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="0.01"
+                      autoFocus
+                      value={editAmount}
+                      onChange={(e) => setEditAmount(e.target.value)}
+                      className="rounded-lg border border-lavender-light px-2 py-1 text-xs w-24 focus:outline-none focus:ring-2 focus:ring-lavender/50"
+                      aria-label={`${b.categoryName} limit`}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-muted mb-0.5">
+                      Period
+                    </label>
+                    <select
+                      value={editPeriod}
+                      onChange={(e) => setEditPeriod(e.target.value as "WEEKLY" | "MONTHLY")}
+                      className="rounded-lg border border-lavender-light px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-lavender/50"
+                      aria-label={`${b.categoryName} period`}
+                    >
+                      <option value="MONTHLY">Monthly</option>
+                      <option value="WEEKLY">Weekly</option>
+                    </select>
+                  </div>
+                  <button
+                    type="submit"
+                    className="rounded-lg bg-blossom hover:bg-blossom-dark text-white text-xs font-semibold px-3 py-1.5 transition-colors"
+                  >
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingId(null)}
+                    className="text-xs text-muted hover:text-ink px-1 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </form>
+              ) : (
+                <div className="flex items-center justify-between mt-3">
+                  <button
+                    onClick={() => startEdit(b)}
+                    className="text-xs font-medium text-lavender-dark hover:underline"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => remove(b.id)}
+                    className="text-xs text-muted hover:text-negative transition-colors"
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>

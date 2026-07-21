@@ -21,6 +21,163 @@ function hostLabel(url: string): string {
   }
 }
 
+const inputCls =
+  "rounded-lg border border-lavender-light bg-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-lavender/50";
+
+// Display row. Module-level (not defined inside the parent) so React keeps it
+// mounted across parent re-renders.
+function WishlistRowView({
+  item,
+  onToggle,
+  onEdit,
+  onRemove,
+}: {
+  item: WishlistRow;
+  onToggle: () => void;
+  onEdit: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <li className="flex items-center gap-3 py-2.5">
+      <input
+        type="checkbox"
+        checked={item.purchased}
+        onChange={onToggle}
+        className="accent-[#D4537E] w-4 h-4 shrink-0"
+        aria-label={item.purchased ? `Mark ${item.name} as not bought` : `Mark ${item.name} as bought`}
+      />
+      <div className="flex-1 min-w-0">
+        <p className={`text-sm font-medium truncate ${item.purchased ? "line-through text-muted" : ""}`}>
+          {item.name}
+        </p>
+        {item.url && (
+          <a
+            href={item.url}
+            target="_blank"
+            rel="noopener noreferrer nofollow"
+            className="text-xs text-lavender-dark hover:underline"
+          >
+            {hostLabel(item.url)} ↗
+          </a>
+        )}
+      </div>
+      <span className={`text-sm font-semibold shrink-0 ${item.purchased ? "text-muted" : ""}`}>
+        {money(item.price)}
+      </span>
+      <div className="flex items-center gap-2 shrink-0">
+        <button
+          onClick={onEdit}
+          className="text-xs text-lavender-dark hover:underline"
+          aria-label={`Edit ${item.name}`}
+        >
+          Edit
+        </button>
+        <button
+          onClick={onRemove}
+          className="text-xs text-muted hover:text-negative transition-colors"
+          aria-label={`Remove ${item.name}`}
+        >
+          ✕
+        </button>
+      </div>
+    </li>
+  );
+}
+
+// Inline edit form with its own draft state (seeded from the item), so typing
+// doesn't round-trip through the parent and nothing is saved until "Save".
+function WishlistEditForm({
+  item,
+  onCancel,
+  onSaved,
+}: {
+  item: WishlistRow;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(item.name);
+  const [price, setPrice] = useState(String(item.price));
+  const [url, setUrl] = useState(item.url ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    const res = await fetch(`/api/wishlist/${item.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        price: parseFloat(price),
+        url: url.trim() ? url.trim() : null,
+      }),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "Could not save changes.");
+      return;
+    }
+    onSaved();
+  }
+
+  return (
+    <li className="py-2.5">
+      <form onSubmit={save} className="flex flex-wrap items-end gap-2">
+        <div className="flex-1 min-w-40">
+          <label className="block text-[11px] font-medium text-muted mb-0.5">Item</label>
+          <input
+            required
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className={`${inputCls} w-full`}
+          />
+        </div>
+        <div>
+          <label className="block text-[11px] font-medium text-muted mb-0.5">Price ($)</label>
+          <input
+            type="number"
+            required
+            min="0"
+            step="0.01"
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            className={`${inputCls} w-24`}
+          />
+        </div>
+        <div className="flex-1 min-w-40">
+          <label className="block text-[11px] font-medium text-muted mb-0.5">Link</label>
+          <input
+            type="url"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://…"
+            className={`${inputCls} w-full`}
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={busy}
+          className="rounded-lg bg-blossom hover:bg-blossom-dark text-white text-xs font-semibold px-3 py-1.5 transition-colors disabled:opacity-60"
+        >
+          {busy ? "Saving…" : "Save"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-xs text-muted hover:text-ink px-1 transition-colors"
+        >
+          Cancel
+        </button>
+        {error && <p className="text-sm text-negative w-full">{error}</p>}
+      </form>
+    </li>
+  );
+}
+
 export function WishlistSection({ items }: { items: WishlistRow[] }) {
   const router = useRouter();
   const [adding, setAdding] = useState(false);
@@ -29,6 +186,7 @@ export function WishlistSection({ items }: { items: WishlistRow[] }) {
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const open = items.filter((i) => !i.purchased);
   const purchased = items.filter((i) => i.purchased);
@@ -75,45 +233,28 @@ export function WishlistSection({ items }: { items: WishlistRow[] }) {
     router.refresh();
   }
 
-  const inputCls =
-    "rounded-lg border border-lavender-light bg-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-lavender/50";
-
-  function Row({ item }: { item: WishlistRow }) {
-    return (
-      <li className="flex items-center gap-3 py-2.5">
-        <input
-          type="checkbox"
-          checked={item.purchased}
-          onChange={() => togglePurchased(item)}
-          className="accent-[#D4537E] w-4 h-4 shrink-0"
-          aria-label={item.purchased ? `Mark ${item.name} as not bought` : `Mark ${item.name} as bought`}
+  function renderItem(item: WishlistRow) {
+    if (editingId === item.id) {
+      return (
+        <WishlistEditForm
+          key={item.id}
+          item={item}
+          onCancel={() => setEditingId(null)}
+          onSaved={() => {
+            setEditingId(null);
+            router.refresh();
+          }}
         />
-        <div className="flex-1 min-w-0">
-          <p className={`text-sm font-medium truncate ${item.purchased ? "line-through text-muted" : ""}`}>
-            {item.name}
-          </p>
-          {item.url && (
-            <a
-              href={item.url}
-              target="_blank"
-              rel="noopener noreferrer nofollow"
-              className="text-xs text-lavender-dark hover:underline"
-            >
-              {hostLabel(item.url)} ↗
-            </a>
-          )}
-        </div>
-        <span className={`text-sm font-semibold shrink-0 ${item.purchased ? "text-muted" : ""}`}>
-          {money(item.price)}
-        </span>
-        <button
-          onClick={() => remove(item.id)}
-          className="text-xs text-muted hover:text-negative transition-colors shrink-0"
-          aria-label={`Remove ${item.name}`}
-        >
-          ✕
-        </button>
-      </li>
+      );
+    }
+    return (
+      <WishlistRowView
+        key={item.id}
+        item={item}
+        onToggle={() => togglePurchased(item)}
+        onEdit={() => setEditingId(item.id)}
+        onRemove={() => remove(item.id)}
+      />
     );
   }
 
@@ -194,9 +335,7 @@ export function WishlistSection({ items }: { items: WishlistRow[] }) {
       ) : (
         <>
           <ul className="divide-y divide-lavender-light/70">
-            {open.map((item) => (
-              <Row key={item.id} item={item} />
-            ))}
+            {open.map((item) => renderItem(item))}
           </ul>
           {purchased.length > 0 && (
             <div className="mt-3 pt-3 border-t border-lavender-light">
@@ -204,9 +343,7 @@ export function WishlistSection({ items }: { items: WishlistRow[] }) {
                 Bought
               </p>
               <ul className="divide-y divide-lavender-light/70">
-                {purchased.map((item) => (
-                  <Row key={item.id} item={item} />
-                ))}
+                {purchased.map((item) => renderItem(item))}
               </ul>
             </div>
           )}
