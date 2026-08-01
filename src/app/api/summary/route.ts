@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { monthRange } from "@/lib/dates";
 import { getBudgetsWithProgress } from "@/lib/budgets";
+import { totalSpend } from "@/lib/spending";
 
 // Read-only current-month summary for external personal dashboards (mosaic).
 // Protected by MOSAIC_TOKEN, following the same Bearer pattern as CRON_SECRET.
@@ -17,16 +18,8 @@ export async function GET(req: Request) {
   const range = monthRange(new Date());
   const inMonth = { gte: range.start, lte: range.end };
 
-  const [spentAgg, incomeAgg, budgets] = await Promise.all([
-    prisma.transaction.aggregate({
-      where: {
-        userId: user.id,
-        date: inMonth,
-        amount: { gt: 0 },
-        category: { isNot: { name: "Income" } },
-      },
-      _sum: { amount: true },
-    }),
+  const [spent, incomeAgg, budgets] = await Promise.all([
+    totalSpend(user.id, range),
     prisma.transaction.aggregate({
       where: { userId: user.id, date: inMonth, category: { is: { name: "Income" } } },
       _sum: { amount: true },
@@ -34,7 +27,6 @@ export async function GET(req: Request) {
     getBudgetsWithProgress(user.id),
   ]);
 
-  const spent = Number(spentAgg._sum.amount ?? 0);
   const income = Math.abs(Number(incomeAgg._sum.amount ?? 0));
 
   return NextResponse.json({

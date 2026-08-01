@@ -53,11 +53,11 @@ export async function getBudgetsWithProgress(
         userId,
         categoryId: b.categoryId,
         date: { gte: range.start, lte: range.end },
-        amount: { gt: 0 },
       },
       _sum: { amount: true },
     });
-    const spent = Number(agg._sum.amount ?? 0);
+    // Net spend: money out minus reimbursements in the same category, floored at 0.
+    const spent = Math.max(0, Number(agg._sum.amount ?? 0));
     const limit = Number(b.amount);
     const { pct, status } = computeBudgetStatus(spent, limit);
     results.push({

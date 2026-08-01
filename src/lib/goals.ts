@@ -102,11 +102,11 @@ export async function getGoalsWithProgress(
           userId,
           categoryId: goal.categoryId,
           date: { gte: range.start, lte: range.end },
-          amount: { gt: 0 },
         },
         _sum: { amount: true },
       });
-      periodSpend = Number(agg._sum.amount ?? 0);
+      // Net spend: reimbursements in the same category offset the limit, floored at 0.
+      periodSpend = Math.max(0, Number(agg._sum.amount ?? 0));
     }
 
     results.push({
