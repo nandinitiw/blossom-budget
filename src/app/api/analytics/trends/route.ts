@@ -50,12 +50,15 @@ export async function GET(req: Request) {
       ? format(startOfWeek(d, { weekStartsOn: 1 }), "MMM d")
       : format(d, "MMM yyyy");
 
-  type Bucket = { spend: number; earned: number; cats: Record<string, number> };
+  // cats holds the running NET per category (money out + money in, so a
+  // reimbursement categorized into a category cancels it out). earned is
+  // actual income = money in within the Income category (paychecks).
+  type Bucket = { earned: number; cats: Record<string, number> };
   const buckets = new Map<string, Bucket>();
   // Pre-create buckets so empty periods still render
   const cursor = new Date(start);
   while (cursor <= end) {
-    buckets.set(bucketOf(cursor), { spend: 0, earned: 0, cats: {} });
+    buckets.set(bucketOf(cursor), { earned: 0, cats: {} });
     if (granularity === "weekly") cursor.setDate(cursor.getDate() + 7);
     else cursor.setMonth(cursor.getMonth() + 1);
   }
@@ -63,28 +66,41 @@ export async function GET(req: Request) {
   for (const tx of txs) {
     const bucket = buckets.get(bucketOf(tx.date));
     if (!bucket) continue;
-    const amount = Number(tx.amount);
+    const amount = Number(tx.amount); // Plaid: positive = out, negative = in
     const catName = tx.categoryId
       ? (catById.get(tx.categoryId)?.name ?? "Uncategorized")
       : "Uncategorized";
 
-    // Plaid convention: negative amount = money in.
-    if (amount < 0) {
-      bucket.earned += -amount;
-    } else if (catName !== "Income") {
-      bucket.spend += amount;
+    if (catName === "Income") {
+      // Paychecks etc. come in as negative amounts.
+      if (amount < 0) bucket.earned += -amount;
+    } else {
+      // Net the amount into its category (reimbursements offset spending).
       bucket.cats[catName] = (bucket.cats[catName] ?? 0) + amount;
     }
   }
 
-  const series = Array.from(buckets.entries()).map(([label, b]) => ({
-    label,
-    spend: Math.round(b.spend * 100) / 100,
-    earned: Math.round(b.earned * 100) / 100,
-    net: Math.round((b.earned - b.spend) * 100) / 100,
-    total: Math.round(b.spend * 100) / 100, // back-compat: total == spend
-    ...b.cats,
-  }));
+  const series = Array.from(buckets.entries()).map(([label, b]) => {
+    // Floor each category at 0 (an over-reimbursed category can't create a
+    // negative bar or bleed into others); total spend is their sum.
+    const cats: Record<string, number> = {};
+    let spend = 0;
+    for (const [name, net] of Object.entries(b.cats)) {
+      const v = Math.max(0, Math.round(net * 100) / 100);
+      if (v > 0) cats[name] = v;
+      spend += v;
+    }
+    spend = Math.round(spend * 100) / 100;
+    const earned = Math.round(b.earned * 100) / 100;
+    return {
+      label,
+      spend,
+      earned,
+      net: Math.round((earned - spend) * 100) / 100,
+      total: spend, // back-compat: total == spend
+      ...cats,
+    };
+  });
 
   const categoryMeta = categories
     .filter((c) => c.name !== "Income")
